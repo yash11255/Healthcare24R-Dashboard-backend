@@ -296,6 +296,107 @@ router.get('/tasks', async (req, res) => {
 });
 
 /**
+ * @route   GET /api/owner/tasks/entries
+ * @desc    View all task entries for all patients of this owner (Owner only)
+ * @access  Owner
+ */
+router.get('/tasks/entries', async (req, res) => {
+  try {
+    // Get all patients belonging to this owner
+    const patients = await Patient.find({ ownerId: req.user.userId });
+    const patientIds = patients.map(p => p._id);
+
+    if (patientIds.length === 0) {
+      return res.json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
+
+    // Get query parameters for filtering
+    const { startDate, endDate, taskId, patientId, limit } = req.query;
+
+    // Build query
+    const query = { patientId: { $in: patientIds } };
+    
+    if (patientId) {
+      query.patientId = patientId;
+    }
+
+    if (taskId) {
+      query.ownerTaskId = taskId;
+    }
+
+    if (startDate || endDate) {
+      query.timestampUTC = {};
+      if (startDate) {
+        query.timestampUTC.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.timestampUTC.$lte = new Date(endDate);
+      }
+    }
+
+    // Fetch task entries
+    let taskEntriesQuery = TaskEntry.find(query)
+      .populate('patientId', 'name')
+      .populate('ownerTaskId', 'name description')
+      .populate('nurseId', 'name email')
+      .sort({ timestampUTC: -1 });
+
+    if (limit) {
+      taskEntriesQuery = taskEntriesQuery.limit(parseInt(limit));
+    }
+
+    const taskEntries = await taskEntriesQuery;
+
+    // Convert timestamps to owner's timezone
+    const ownerTimezone = req.user.timezone || 'UTC';
+    const formattedEntries = taskEntries.map(entry => {
+      const localTime = moment(entry.timestampUTC).tz(ownerTimezone).format('YYYY-MM-DD HH:mm:ss');
+      
+      return {
+        id: entry._id,
+        patient: entry.patientId ? {
+          id: entry.patientId._id,
+          name: entry.patientId.name
+        } : null,
+        task: entry.ownerTaskId ? {
+          id: entry.ownerTaskId._id,
+          name: entry.ownerTaskId.name,
+          description: entry.ownerTaskId.description
+        } : null,
+        nurse: entry.nurseId ? {
+          id: entry.nurseId._id,
+          name: entry.nurseId.name,
+          email: entry.nurseId.email
+        } : null,
+        note: entry.note,
+        timestampUTC: entry.timestampUTC,
+        ownerLocalTime: localTime,
+        nurseLocalTime: entry.nurseLocalTime,
+        nurseTimezone: entry.nurseTimezone
+      };
+    });
+
+    res.json({
+      success: true,
+      count: formattedEntries.length,
+      ownerTimezone,
+      data: formattedEntries
+    });
+  } catch (error) {
+    console.error('Error fetching task entries:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch task entries',
+      error: error.message
+    });
+  }
+});
+
+/**
  * @route   GET /api/owner/tasks/:id
  * @desc    Get a single task by ID (Owner only)
  * @access  Owner
@@ -508,107 +609,6 @@ router.get('/patients/:id/tasks', async (req, res) => {
         id: patient._id,
         name: patient.name
       },
-      ownerTimezone,
-      data: formattedEntries
-    });
-  } catch (error) {
-    console.error('Error fetching task entries:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch task entries',
-      error: error.message
-    });
-  }
-});
-
-/**
- * @route   GET /api/owner/tasks/entries
- * @desc    View all task entries for all patients of this owner (Owner only)
- * @access  Owner
- */
-router.get('/tasks/entries', async (req, res) => {
-  try {
-    // Get all patients belonging to this owner
-    const patients = await Patient.find({ ownerId: req.user.userId });
-    const patientIds = patients.map(p => p._id);
-
-    if (patientIds.length === 0) {
-      return res.json({
-        success: true,
-        count: 0,
-        data: []
-      });
-    }
-
-    // Get query parameters for filtering
-    const { startDate, endDate, taskId, patientId, limit } = req.query;
-
-    // Build query
-    const query = { patientId: { $in: patientIds } };
-    
-    if (patientId) {
-      query.patientId = patientId;
-    }
-
-    if (taskId) {
-      query.ownerTaskId = taskId;
-    }
-
-    if (startDate || endDate) {
-      query.timestampUTC = {};
-      if (startDate) {
-        query.timestampUTC.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        query.timestampUTC.$lte = new Date(endDate);
-      }
-    }
-
-    // Fetch task entries
-    let taskEntriesQuery = TaskEntry.find(query)
-      .populate('patientId', 'name')
-      .populate('ownerTaskId', 'name description')
-      .populate('nurseId', 'name email')
-      .sort({ timestampUTC: -1 });
-
-    if (limit) {
-      taskEntriesQuery = taskEntriesQuery.limit(parseInt(limit));
-    }
-
-    const taskEntries = await taskEntriesQuery;
-
-    // Convert timestamps to owner's timezone
-    const ownerTimezone = req.user.timezone || 'UTC';
-    const formattedEntries = taskEntries.map(entry => {
-      const localTime = moment(entry.timestampUTC).tz(ownerTimezone).format('YYYY-MM-DD HH:mm:ss');
-      
-      return {
-        id: entry._id,
-        patient: entry.patientId ? {
-          id: entry.patientId._id,
-          name: entry.patientId.name
-        } : null,
-        task: entry.ownerTaskId ? {
-          id: entry.ownerTaskId._id,
-          name: entry.ownerTaskId.name,
-          description: entry.ownerTaskId.description
-        } : null,
-        nurse: entry.nurseId ? {
-          id: entry.nurseId._id,
-          name: entry.nurseId.name,
-          email: entry.nurseId.email
-        } : null,
-        note: entry.note,
-        timestampUTC: entry.timestampUTC,
-        ownerLocalTime: localTime,
-        nurseLocalTime: entry.nurseLocalTime,
-        nurseTimezone: entry.nurseTimezone
-      };
-    });
-
-    res.json({
-      success: true,
-      count: formattedEntries.length,
       ownerTimezone,
       data: formattedEntries
     });

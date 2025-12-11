@@ -91,20 +91,35 @@ router.post(
     body('name').trim().notEmpty().withMessage('Name is required'),
     body('email').isEmail().withMessage('Valid email is required'),
     body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-    body('phone').optional().trim(),
+    body('phone').trim().notEmpty().withMessage('Phone number is required for nurses'),
+    body('address').trim().notEmpty().withMessage('Address is required for nurses'),
+    body('aadhaarNumber').trim().notEmpty().withMessage('Aadhaar number is required for nurses')
+      .isLength({ min: 12, max: 12 }).withMessage('Aadhaar number must be 12 digits'),
+    body('bankAccountNumber').trim().notEmpty().withMessage('Bank account number is required for nurses'),
+    body('bankIFSC').trim().notEmpty().withMessage('Bank IFSC code is required for nurses'),
+    body('bankName').optional().trim(),
     body('timezone').optional().trim()
   ],
   validate,
   async (req, res) => {
     try {
-      const { name, email, password, phone, timezone } = req.body;
+      const { name, email, password, phone, address, aadhaarNumber, bankAccountNumber, bankIFSC, bankName, timezone } = req.body;
 
-      // Check if user already exists
+      // Check if email already exists
       const existingUser = await User.findOne({ email: email.toLowerCase() });
       if (existingUser) {
         return res.status(400).json({
           success: false,
           message: 'User with this email already exists'
+        });
+      }
+
+      // Check if Aadhaar number already exists
+      const existingAadhaar = await User.findOne({ aadhaarNumber });
+      if (existingAadhaar) {
+        return res.status(400).json({
+          success: false,
+          message: 'A user with this Aadhaar number already exists'
         });
       }
 
@@ -117,6 +132,11 @@ router.post(
         name,
         email: email.toLowerCase(),
         phone,
+        address,
+        aadhaarNumber,
+        bankAccountNumber,
+        bankIFSC,
+        bankName: bankName || '',
         passwordHash,
         role: 'nurse',
         timezone: timezone || 'UTC'
@@ -132,6 +152,11 @@ router.post(
           name: nurse.name,
           email: nurse.email,
           phone: nurse.phone,
+          address: nurse.address,
+          aadhaarNumber: nurse.aadhaarNumber,
+          bankAccountNumber: nurse.bankAccountNumber,
+          bankIFSC: nurse.bankIFSC,
+          bankName: nurse.bankName,
           role: nurse.role,
           timezone: nurse.timezone,
           createdAt: nurse.createdAt
