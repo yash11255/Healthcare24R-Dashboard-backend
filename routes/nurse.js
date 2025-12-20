@@ -253,6 +253,19 @@ router.post(
       // Format local time for nurse
       const nurseLocalTime = moment(timestampUTC).tz(timezone).format('YYYY-MM-DD HH:mm:ss');
 
+      // Check if submission is late
+      let isLate = false;
+      if (task.scheduledTime) {
+        // Parse scheduled time (HH:mm format)
+        const [scheduledHour, scheduledMin] = task.scheduledTime.split(':').map(Number);
+        const scheduledDateTime = moment.tz(timezone).hour(scheduledHour).minute(scheduledMin).second(0);
+        const submissionTime = moment.tz(timestampUTC, timezone);
+        
+        if (submissionTime.isAfter(scheduledDateTime)) {
+          isLate = true;
+        }
+      }
+
       // Create task entry
       const taskEntry = new TaskEntry({
         patientId,
@@ -261,7 +274,10 @@ router.post(
         note,
         timestampUTC,
         nurseLocalTime,
-        nurseTimezone: timezone
+        nurseTimezone: timezone,
+        expectedCompletionTime: task.scheduledTime || undefined,
+        submittedAt: timestampUTC,
+        isLate
       });
 
       await taskEntry.save();
@@ -271,7 +287,7 @@ router.post(
 
       res.status(201).json({
         success: true,
-        message: 'Task completed successfully',
+        message: isLate ? 'Task completed (marked as late)' : 'Task completed successfully',
         data: {
           id: taskEntry._id,
           patient: {
@@ -281,12 +297,15 @@ router.post(
           task: {
             id: taskEntry.ownerTaskId._id,
             name: taskEntry.ownerTaskId.name,
-            description: taskEntry.ownerTaskId.description
+            description: taskEntry.ownerTaskId.description,
+            scheduledTime: task.scheduledTime
           },
           note: taskEntry.note,
           timestampUTC: taskEntry.timestampUTC,
           nurseLocalTime: taskEntry.nurseLocalTime,
-          nurseTimezone: taskEntry.nurseTimezone
+          nurseTimezone: taskEntry.nurseTimezone,
+          expectedCompletionTime: taskEntry.expectedCompletionTime,
+          isLate: taskEntry.isLate
         }
       });
     } catch (error) {
@@ -352,7 +371,10 @@ router.get('/my-tasks', async (req, res) => {
       note: entry.note,
       timestampUTC: entry.timestampUTC,
       nurseLocalTime: entry.nurseLocalTime,
-      nurseTimezone: entry.nurseTimezone
+      nurseTimezone: entry.nurseTimezone,
+      expectedCompletionTime: entry.expectedCompletionTime,
+      submittedAt: entry.submittedAt,
+      isLate: entry.isLate
     }));
 
     res.json({

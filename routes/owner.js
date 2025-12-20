@@ -231,21 +231,36 @@ router.post(
   [
     body('name').trim().notEmpty().withMessage('Task name is required'),
     body('description').optional().trim(),
-    body('order').optional().isInt().withMessage('Order must be an integer')
+    body('order').optional().isInt().withMessage('Order must be an integer'),
+    body('scheduledTime').optional().matches(/^([01]\d|2[0-3]):([0-5]\d)$/).withMessage('scheduledTime must be in HH:mm format'),
+    body('fromTemplate').optional().isMongoId().withMessage('Invalid template ID')
   ],
   validate,
   async (req, res) => {
     try {
-      const { name, description, order } = req.body;
+      const { name, description, order, scheduledTime, fromTemplate } = req.body;
 
-      const task = new OwnerTask({
+      // If creating from template, copy its data
+      let taskData = {
         ownerId: req.user.userId,
         name,
         description,
         order: order || 0,
-        active: true
-      });
+        scheduledTime: scheduledTime || undefined,
+        active: true,
+        isTemplate: false
+      };
 
+      if (fromTemplate) {
+        const template = await OwnerTask.findOne({ _id: fromTemplate, isTemplate: true });
+        if (template) {
+          taskData.name = name || template.name;
+          taskData.description = description || template.description;
+          taskData.scheduledTime = scheduledTime || template.scheduledTime;
+        }
+      }
+
+      const task = new OwnerTask(taskData);
       await task.save();
 
       res.status(201).json({
@@ -290,6 +305,30 @@ router.get('/tasks', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch tasks',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/owner/task-templates
+ * @desc    Get predefined task templates available to owners
+ * @access  Owner
+ */
+router.get('/task-templates', async (req, res) => {
+  try {
+    const templates = await OwnerTask.find({ isTemplate: true, ownerId: null, active: true }).sort({ order: 1 });
+
+    res.json({
+      success: true,
+      count: templates.length,
+      data: templates
+    });
+  } catch (error) {
+    console.error('Error fetching templates:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch templates',
       error: error.message
     });
   }
@@ -376,7 +415,10 @@ router.get('/tasks/entries', async (req, res) => {
         timestampUTC: entry.timestampUTC,
         ownerLocalTime: localTime,
         nurseLocalTime: entry.nurseLocalTime,
-        nurseTimezone: entry.nurseTimezone
+        nurseTimezone: entry.nurseTimezone,
+        expectedCompletionTime: entry.expectedCompletionTime,
+        submittedAt: entry.submittedAt,
+        isLate: entry.isLate
       };
     });
 
@@ -621,5 +663,68 @@ router.get('/patients/:id/tasks', async (req, res) => {
     });
   }
 });
+
+/**
+ * @route   POST /api/owner/tasks/reorder
+ * @desc    Reorder tasks by updating their order field (Owner only)
+ * @access  Owner
+ */
+router.post(
+  '/tasks/reorder',
+  [
+    body('tasks')
+      .isArray()
+      .withMessage('Tasks must be an array')
+      .custom((tasks) => {
+        return tasks.every(t => t.id && typeof t.order === 'number');
+      })
+      .withMessage('Each task must have id and order')
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const { tasks } = req.body;
+
+      // Verify all tasks belong to this owner
+      const taskIds = tasks.map(t => t.id);
+      const ownerTasks = await OwnerTask.find({
+        _id: { $in: taskIds },
+        ownerId: req.user.userId
+      });
+
+      if (ownerTasks.length !== taskIds.length) {
+        return res.status(403).json({
+          success: false,
+          message: 'Some tasks do not belong to you or do not exist'
+        });
+      }
+
+      // Update order for each task
+      const updates = [];
+      for (const taskData of tasks) {
+        updates.push(
+          OwnerTask.updateOne(
+            { _id: taskData.id, ownerId: req.user.userId },
+            { order: taskData.order, updatedAt: new Date() }
+          )
+        );
+      }
+
+      await Promise.all(updates);
+
+      res.json({
+        success: true,
+        message: 'Tasks reordered successfully'
+      });
+    } catch (error) {
+      console.error('Error reordering tasks:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to reorder tasks',
+        error: error.message
+      });
+    }
+  }
+);
 
 module.exports = router;

@@ -5,6 +5,7 @@ const { body } = require('express-validator');
 const User = require('../models/User');
 const Assignment = require('../models/Assignment');
 const Patient = require('../models/Patient');
+const OwnerTask = require('../models/OwnerTask');
 const { authenticate, isAdmin } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 
@@ -378,6 +379,83 @@ router.get('/users', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch users',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/admin/task-templates
+ * @desc    Create predefined task templates (Admin only)
+ * @access  Admin
+ */
+router.post('/task-templates', async (req, res) => {
+  try {
+    const predefinedTemplates = [
+      { name: 'Morning Check-in', description: 'Check patient status and vitals in the morning', scheduledTime: '09:00', order: 1 },
+      { name: 'Medication Administration', description: 'Administer prescribed medications', scheduledTime: '10:00', order: 2 },
+      { name: 'Lunch Check', description: 'Ensure patient has eaten lunch', scheduledTime: '13:00', order: 3 },
+      { name: 'Afternoon Check-in', description: 'Check patient status in the afternoon', scheduledTime: '15:00', order: 4 },
+      { name: 'Evening Check-in', description: 'Check patient status and vitals in the evening', scheduledTime: '18:00', order: 5 },
+      { name: 'Dinner Check', description: 'Ensure patient has eaten dinner', scheduledTime: '19:30', order: 6 },
+      { name: 'Night Check-out', description: 'Final check before bedtime', scheduledTime: '21:00', order: 7 },
+      { name: 'Blood Pressure Check', description: 'Monitor blood pressure', scheduledTime: '11:00', order: 8 },
+      { name: 'Temperature Check', description: 'Monitor body temperature', scheduledTime: '12:00', order: 9 },
+      { name: 'Wound Dressing', description: 'Change and clean wound dressings', scheduledTime: '14:00', order: 10 }
+    ];
+
+    const templates = [];
+    for (const tpl of predefinedTemplates) {
+      const existing = await OwnerTask.findOne({ name: tpl.name, isTemplate: true, ownerId: null });
+      if (!existing) {
+        const template = new OwnerTask({
+          ownerId: null, // Global template
+          name: tpl.name,
+          description: tpl.description,
+          scheduledTime: tpl.scheduledTime,
+          order: tpl.order,
+          isTemplate: true,
+          active: true
+        });
+        await template.save();
+        templates.push(template);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `${templates.length} templates created`,
+      data: templates
+    });
+  } catch (error) {
+    console.error('Error creating templates:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create templates',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/admin/task-templates
+ * @desc    Get all predefined task templates (Admin only)
+ * @access  Admin
+ */
+router.get('/task-templates', async (req, res) => {
+  try {
+    const templates = await OwnerTask.find({ isTemplate: true, ownerId: null }).sort({ order: 1 });
+
+    res.json({
+      success: true,
+      count: templates.length,
+      data: templates
+    });
+  } catch (error) {
+    console.error('Error fetching templates:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch templates',
       error: error.message
     });
   }

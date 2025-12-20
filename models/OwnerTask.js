@@ -15,6 +15,16 @@ const OwnerTaskSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  isTemplate: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  scheduledTime: {
+    type: String,
+    trim: true,
+    // Format: "HH:mm" e.g., "09:00", "14:30"
+  },
   active: {
     type: Boolean,
     default: true

@@ -29,6 +29,18 @@ const TaskEntrySchema = new mongoose.Schema({
   },
   nurseTimezone: {
     type: String
+  },
+  expectedCompletionTime: {
+    type: String,
+    // Format: "HH:mm" from the task's scheduledTime
+  },
+  submittedAt: {
+    type: Date,
+    default: () => new Date()
+  },
+  isLate: {
+    type: Boolean,
+    default: false
   }
 });
 

@@ -8,6 +8,7 @@ const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const ownerRoutes = require('./routes/owner');
 const nurseRoutes = require('./routes/nurse');
+const queryRoutes = require('./routes/queries');
 
 // Initialize Express app
 const app = express();
@@ -44,6 +45,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/owner', ownerRoutes);
 app.use('/api/nurse', nurseRoutes);
+app.use('/api/queries', queryRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -56,7 +58,8 @@ app.get('/', (req, res) => {
       auth: '/api/auth',
       admin: '/api/admin',
       owner: '/api/owner',
-      nurse: '/api/nurse'
+      nurse: '/api/nurse',
+      queries: '/api/queries'
     }
   });
 });
