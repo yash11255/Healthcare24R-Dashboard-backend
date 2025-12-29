@@ -108,4 +108,23 @@ router.patch(
   }
 );
 
+// Delete my query (Owner or Nurse)
+router.delete('/:id', authenticate, authorize('owner', 'nurse'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const query = await Query.findOne({ _id: id, createdBy: req.user.userId });
+
+    if (!query) {
+      return res.status(404).json({ success: false, message: 'Query not found' });
+    }
+
+    await query.deleteOne();
+
+    res.json({ success: true, message: 'Query deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting query:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete query', error: error.message });
+  }
+});
+
 module.exports = router;

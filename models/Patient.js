@@ -11,6 +11,14 @@ const PatientSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  age: {
+    type: Number,
+    min: 0
+  },
+  phone: {
+    type: String,
+    trim: true
+  },
   dob: {
     type: Date
   },
@@ -21,6 +29,11 @@ const PatientSchema = new mongoose.Schema({
   address: {
     type: String,
     trim: true
+  },
+  assignedNurse: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
   },
   patientTimezone: {
     type: String,

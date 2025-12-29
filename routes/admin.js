@@ -243,6 +243,10 @@ router.post(
 
       await assignment.save();
 
+      // Update patient's assignedNurse field
+      patient.assignedNurse = nurseId;
+      await patient.save();
+
       // Populate references for response
       await assignment.populate('patientId', 'name');
       await assignment.populate('nurseId', 'name email');
@@ -460,5 +464,185 @@ router.get('/task-templates', async (req, res) => {
     });
   }
 });
+
+/**
+ * @route   POST /api/admin/owners/:ownerId/tasks
+ * @desc    Create a task for a specific owner (Admin only)
+ * @access  Admin
+ */
+router.post(
+  '/owners/:ownerId/tasks',
+  [
+    body('name').trim().notEmpty().withMessage('Task name is required'),
+    body('description').optional().trim(),
+    body('order').optional().isInt().withMessage('Order must be an integer'),
+    body('scheduledTime').optional().matches(/^([01]\d|2[0-3]):([0-5]\d)$/).withMessage('scheduledTime must be in HH:mm format'),
+    body('fromTemplate').optional().isMongoId().withMessage('Invalid template ID')
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const { ownerId } = req.params;
+      const { name, description, order, scheduledTime, fromTemplate } = req.body;
+
+      // Verify owner exists and role is owner
+      const owner = await User.findById(ownerId);
+      if (!owner || owner.role !== 'owner') {
+        return res.status(404).json({ success: false, message: 'Owner not found' });
+      }
+
+      let taskData = {
+        ownerId,
+        name,
+        description,
+        order: order || 0,
+        scheduledTime: scheduledTime || undefined,
+        active: true,
+        isTemplate: false
+      };
+
+      if (fromTemplate) {
+        const template = await OwnerTask.findOne({ _id: fromTemplate, isTemplate: true, ownerId: null });
+        if (template) {
+          taskData.name = name || template.name;
+          taskData.description = description || template.description;
+          taskData.scheduledTime = scheduledTime || template.scheduledTime;
+        }
+      }
+
+      const task = new OwnerTask(taskData);
+      await task.save();
+
+      res.status(201).json({ success: true, message: 'Task created successfully', data: task });
+    } catch (error) {
+      console.error('Error creating owner task:', error);
+      res.status(500).json({ success: false, message: 'Failed to create task', error: error.message });
+    }
+  }
+);
+
+/**
+ * @route   GET /api/admin/owners/:ownerId/tasks
+ * @desc    Get tasks for a specific owner (Admin only)
+ * @access  Admin
+ */
+router.get('/owners/:ownerId/tasks', async (req, res) => {
+  try {
+    const { ownerId } = req.params;
+    const { active } = req.query;
+
+    const query = { ownerId };
+    if (active !== undefined) {
+      query.active = active === 'true';
+    }
+
+    const tasks = await OwnerTask.find(query).sort({ order: 1, createdAt: 1 });
+    res.json({ success: true, count: tasks.length, data: tasks });
+  } catch (error) {
+    console.error('Error fetching owner tasks:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch tasks', error: error.message });
+  }
+});
+
+/**
+ * @route   PUT /api/admin/owner-tasks/:id
+ * @desc    Update an owner task (Admin only)
+ * @access  Admin
+ */
+router.put(
+  '/owner-tasks/:id',
+  [
+    body('name').optional().trim().notEmpty().withMessage('Task name cannot be empty'),
+    body('description').optional().trim(),
+    body('order').optional().isInt().withMessage('Order must be an integer'),
+    body('active').optional().isBoolean().withMessage('Active must be a boolean')
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const task = await OwnerTask.findById(req.params.id);
+      if (!task) {
+        return res.status(404).json({ success: false, message: 'Task not found' });
+      }
+
+      const { name, description, order, active } = req.body;
+      if (name !== undefined) task.name = name;
+      if (description !== undefined) task.description = description;
+      if (order !== undefined) task.order = order;
+      if (active !== undefined) task.active = active;
+
+      task.updatedAt = new Date();
+      await task.save();
+
+      res.json({ success: true, message: 'Task updated successfully', data: task });
+    } catch (error) {
+      console.error('Error updating task:', error);
+      res.status(500).json({ success: false, message: 'Failed to update task', error: error.message });
+    }
+  }
+);
+
+/**
+ * @route   DELETE /api/admin/owner-tasks/:id
+ * @desc    Deactivate an owner task (Admin only)
+ * @access  Admin
+ */
+router.delete('/owner-tasks/:id', async (req, res) => {
+  try {
+    const task = await OwnerTask.findById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
+    }
+
+    task.active = false;
+    task.updatedAt = new Date();
+    await task.save();
+
+    res.json({ success: true, message: 'Task deactivated successfully' });
+  } catch (error) {
+    console.error('Error deactivating task:', error);
+    res.status(500).json({ success: false, message: 'Failed to deactivate task', error: error.message });
+  }
+});
+
+/**
+ * @route   POST /api/admin/owners/:ownerId/tasks/reorder
+ * @desc    Reorder tasks for a specific owner (Admin only)
+ * @access  Admin
+ */
+router.post(
+  '/owners/:ownerId/tasks/reorder',
+  [
+    body('tasks')
+      .isArray()
+      .withMessage('Tasks must be an array')
+      .custom((tasks) => tasks.every(t => t.id && typeof t.order === 'number'))
+      .withMessage('Each task must have id and order')
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const { ownerId } = req.params;
+      const { tasks } = req.body;
+
+      // Verify all tasks belong to the specified owner
+      const taskIds = tasks.map(t => t.id);
+      const ownerTasks = await OwnerTask.find({ _id: { $in: taskIds }, ownerId });
+      if (ownerTasks.length !== taskIds.length) {
+        return res.status(403).json({ success: false, message: 'Some tasks do not belong to this owner or do not exist' });
+      }
+
+      const updates = tasks.map(t =>
+        OwnerTask.updateOne({ _id: t.id, ownerId }, { order: t.order, updatedAt: new Date() })
+      );
+      await Promise.all(updates);
+
+      res.json({ success: true, message: 'Tasks reordered successfully' });
+    } catch (error) {
+      console.error('Error reordering tasks:', error);
+      res.status(500).json({ success: false, message: 'Failed to reorder tasks', error: error.message });
+    }
+  }
+);
 
 module.exports = router;
